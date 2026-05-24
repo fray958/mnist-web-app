@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sustentación CRISP-ML(Q) - MNIST Grupo D</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        :root {
+            --bg-main: #0b111e;
+            --bg-card: #131c2e;
+            --bg-input: #1a263e;
+            --text-main: #f1f5f9;
+            --text-muted: #94a3b8;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --secondary: #0ea5e9;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --border: #1e293b;
+            
+            /* Colores de capas y procesos */
+            --layer-conv: #3b82f6;
+            --layer-pool: #0ea5e9;
+            --layer-flat: #8b5cf6;
+            --layer-dense: #10b981;
+            --layer-drop: #f59e0b;
+            --prep-step: #ec4899;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-main);
+            color: var(--text-main);
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* BARRA LATERAL DE NAVEGACIÓN */
+        .sidebar {
+            width: 320px;
+            background-color: var(--bg-card);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 24px;
+            z-index: 10;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 32px;
+        }
+
+        .brand-icon {
+            background: linear-gradient(135deg, var(--primary), var(--secondary));
+            color: white;
+            padding: 8px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .brand-title h1 {
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+
+        .brand-title p {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        .nav-menu {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            flex-grow: 1;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 13.5px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
+        }
+
+        .nav-item:hover {
+            background-color: var(--bg-input);
+            color: var(--text-main);
+        }
+
+        .nav-item.active {
+            background: linear-gradient(90deg, rgba(59, 130, 246, 0.15) 0%, rgba(14, 165, 233, 0.05) 100%);
+            color: var(--primary);
+            border-color: rgba(59, 130, 246, 0.3);
+            font-weight: 600;
+        }
+
+        .sidebar-footer {
+            border-top: 1px solid var(--border);
+            padding-top: 16px;
+            font-size: 12px;
+            color: var(--text-muted);
+            text-align: center;
+        }
+
+        /* ÁREA CENTRAL DE CONTENIDO */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bg-main);
+            overflow-y: auto;
+            position: relative;
+        }
+
+        .top-bar {
+            height: 70px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 40px;
+            background-color: rgba(19, 28, 46, 0.5);
+            backdrop-filter: blur(8px);
+            position: sticky;
+            top: 0;
+            z-index: 5;
+        }
+
+        .slide-counter {
+            font-size: 13px;
+            font-weight: 600;
+            background: var(--bg-input);
+            padding: 6px 12px;
+            border-radius: 20px;
+            color: var(--secondary);
+            border: 1px solid var(--border);
+        }
+
+        .view-panel {
+            flex: 1;
+            padding: 40px;
+            display: none;
+            animation: fadeIn 0.4s ease forwards;
+        }
+
+        .view-panel.active {
+            display: block;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        /* DISEÑO DE TARJETAS Y REJILLA */
+        .panel-header {
+            margin-bottom: 24px;
+        }
+
+        .panel-header h2 {
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            margin-bottom: 6px;
+        }
+
+        .panel-header p {
+            color: var(--text-muted);
+            font-size: 15px;
+        }
+
+        .grid-dashboard {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 20px;
+        }
+
+        .card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 22px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        .col-12 { grid-column: span 12; }
+        .col-8 { grid-column: span 8; }
+        .col-7 { grid-column: span 7; }
+        .col-6 { grid-column: span 6; }
+        .col-5 { grid-column: span 5; }
+        .col-4 { grid-column: span 4; }
+        .col-3 { grid-column: span 3; }
+
+        .card-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-main);
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .card-title i {
+            color: var(--secondary);
+        }
+
+        /* RECUADROS DE CÓDIGO LIMPIO */
+        .code-box {
+            background-color: #070b12;
+            padding: 16px;
+            border-radius: 8px;
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 12.5px;
+            line-height: 1.6;
+            color: #38bdf8;
+            overflow-x: auto;
+            border-left: 4px solid var(--primary);
+        }
+
+        .code-keyword { color: #f472b6; font-weight: bold; }
+        .code-comment { color: #64748b; font-style: italic; }
+        .code-string { color: #34d399; }
+        .code-number { color: #fb923c; }
+
+        /* COMPONENTE: VISUAL PIPELINE PARA LA FASE 3 */
+        .prep-pipeline {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .prep-card {
+            background: #070b12;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            position: relative;
+        }
+
+        .prep-card::after {
+            content: '➔';
+            position: absolute;
+            bottom: -16px;
+            left: 32px;
+            color: var(--border);
+            font-size: 12px;
+            display: block;
+        }
+        .prep-card:last-child::after { display: none; }
+
+        .prep-step-num {
+            background-color: rgba(236, 72, 153, 0.1);
+            color: var(--prep-step);
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 14px;
+            border: 1px solid rgba(236, 72, 153, 0.2);
+            flex-shrink: 0;
+        }
+
+        .prep-details {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .prep-title {
+            font-size: 13.5px;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .prep-desc {
+            font-size: 11.5px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+
+        /* COMPONENTE: PIPELINE DE CAPAS DE RED (FASE 4) */
+        .pipeline-flow {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            position: relative;
+            padding-left: 20px;
+        }
+
+        .pipeline-flow::before {
+            content: '';
+            position: absolute;
+            left: 6px;
+            top: 15px;
+            bottom: 15px;
+            width: 2px;
+            background: linear-gradient(to bottom, var(--layer-conv), var(--layer-dense));
+        }
+
+        .flow-node {
+            display: flex;
+            align-items: center;
+            background-color: #070b12;
+            border-radius: 6px;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            position: relative;
+        }
+
+        .flow-node::before {
+            content: '';
+            position: absolute;
+            left: -18px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--border);
+        }
+
+        .flow-node.conv::before { background-color: var(--layer-conv); }
+        .flow-node.pool::before { background-color: var(--layer-pool); }
+        .flow-node.flat::before { background-color: var(--layer-flat); }
+        .flow-node.dense::before { background-color: var(--layer-dense); }
+        .flow-node.drop::before { background-color: var(--layer-drop); }
+
+        .node-badge {
+            font-size: 10px;
+            font-weight: 800;
+            padding: 3px 6px;
+            border-radius: 4px;
+            color: #fff;
+            text-transform: uppercase;
+            width: 75px;
+            text-align: center;
+            margin-right: 12px;
+        }
+
+        .node-badge.conv { background-color: var(--layer-conv); }
+        .node-badge.pool { background-color: var(--layer-pool); }
+        .node-badge.flat { background-color: var(--layer-flat); }
+        .node-badge.dense { background-color: var(--layer-dense); }
+        .node-badge.drop { background-color: var(--layer-drop); }
+
+        .node-info {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .node-name {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-main);
+        }
+
+        .node-dims {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: monospace;
+        }
+
+        /* MÉTRICAS FLOTANTES */
+        .metric-container {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .metric-value {
+            font-size: 34px;
+            font-weight: 700;
+            letter-spacing: -1px;
+        }
+
+        .metric-value.success { color: var(--success); }
+        .metric-value.danger { color: var(--danger); }
+        .metric-value.primary { color: var(--primary); }
+
+        .metric-lbl {
+            font-size: 13px;
+            color: var(--text-muted);
+        }
+
+        .custom-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .custom-list li {
+            font-size: 14px;
+            line-height: 1.5;
+            color: #cbd5e1;
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+
+        .custom-list li i {
+            margin-top: 3px;
+            flex-shrink: 0;
+        }
+
+        .chart-holder {
+            width: 100%;
+            height: 240px;
+            position: relative;
+        }
+
+        .controls-footer {
+            position: fixed;
+            bottom: 24px;
+            right: 40px;
+            display: flex;
+            gap: 12px;
+            z-index: 20;
+        }
+
+        .btn-nav {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+            transition: all 0.2s ease;
+        }
+
+        .btn-nav:hover {
+            background-color: var(--primary-hover);
+            transform: translateY(-1px);
+        }
+
+        .btn-nav:disabled {
+            background-color: var(--bg-card);
+            color: var(--text-muted);
+            box-shadow: none;
+            cursor: not-allowed;
+            border: 1px solid var(--border);
+        }
+
+        /* PORTADA */
+        .cover-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            text-align: center;
+            padding: 40px;
+        }
+
+        .cover-badge {
+            background-color: rgba(59, 130, 246, 0.1);
+            color: var(--primary);
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            margin-bottom: 20px;
+        }
+
+        .cover-title {
+            font-size: 40px;
+            font-weight: 800;
+            letter-spacing: -1.5px;
+            line-height: 1.1;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, #ffffff 30%, #94a3b8 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .cover-subtitle {
+            font-size: 18px;
+            color: var(--text-muted);
+            max-width: 600px;
+            margin-bottom: 40px;
+            line-height: 1.5;
+        }
+
+        .cover-meta {
+            display: flex;
+            gap: 32px;
+            border-top: 1px solid var(--border);
+            padding-top: 24px;
+        }
+
+        .meta-item {
+            text-align: left;
+        }
+        .meta-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;}
+        .meta-val { font-size: 14px; font-weight: 600; color: var(--text-main); margin-top: 2px; }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar">
+        <div class="top-section">
+            <div class="brand">
+                <div class="brand-icon">
+                    <i data-lucide="layers"></i>
+                </div>
+                <div class="brand-title">
+                    <h1>CRISP-ML(Q)</h1>
+                    <p>Caso de Estudio: MNIST</p>
+                </div>
+            </div>
+
+            <nav class="nav-menu">
+                <div class="nav-item active" onclick="goToSlide(0)">
+                    <i data-lucide="home"></i> Portada
+                </div>
+                <div class="nav-item" onclick="goToSlide(1)">
+                    <i data-lucide="briefcase"></i> Fase 1: Negocio
+                </div>
+                <div class="nav-item" onclick="goToSlide(2)">
+                    <i data-lucide="search"></i> Fase 2: Comprensión Datos
+                </div>
+                <div class="nav-item" onclick="goToSlide(3)">
+                    <i data-lucide="database"></i> Fase 3: Preparación Datos
+                </div>
+                <div class="nav-item" onclick="goToSlide(4)">
+                    <i data-lucide="cpu"></i> Fase 4: Modelado
+                </div>
+                <div class="nav-item" onclick="goToSlide(5)">
+                    <i data-lucide="bar-chart-3"></i> Fase 5: Evaluación
+                </div>
+                <div class="nav-item" onclick="goToSlide(6)">
+                    <i data-lucide="rocket"></i> Fase 6: Despliegue y Monit.
+                </div>
+            </nav>
+        </div>
+
+        <div class="sidebar-footer">
+            Sustentación de Proyecto • Grupo D
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="top-bar">
+            <div style="font-size: 14px; font-weight: 500; color: var(--text-muted);" id="section-indicator">Inicio</div>
+            <div class="slide-counter" id="slide-indicator">Slide 1 de 7</div>
+        </div>
+
+        <div class="view-panel active" id="view-0">
+            <div class="cover-container">
+                <div class="cover-badge">Ciclo de Vida de Software de IA</div>
+                <h1 class="cover-title">Implementación de CRISP-ML(Q)<br>para Clasificación de Dígitos</h1>
+                <p class="cover-subtitle">Proceso metodológico e ingeniería de calidad de extremo a extremo aplicado al set de datos MNIST corporativo.</p>
+                <div class="cover-meta">
+                    <div class="meta-item">
+                        <div class="meta-label">Desarrollado por</div>
+                        <div class="meta-val">Grupo D</div>
+                    </div>
+                    <div class="meta-item">
+                        <div class="meta-label">Modelo Base</div>
+                        <div class="meta-val">CNN (TensorFlow / Keras)</div>
+                    </div>
+                    <div class="meta-item">
+                        <div class="meta-label">Metodología</div>
+                        <div class="meta-val">CRISP-ML(Q) Standard</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="view-panel" id="view-1">
+            <div class="panel-header">
+                <h2>Fase 1: Comprensión del Negocio</h2>
+                <p>Delimitación del problema corporativo y métricas de aseguramiento de calidad (Q).</p>
+            </div>
+            <div class="grid-dashboard">
+                <div class="card col-6">
+                    <div class="card-title"><i data-lucide="target"></i> Objetivos del Negocio</div>
+                    <ul class="custom-list">
+                        <li><i data-lucide="check" style="color:var(--success)"></i> Automatizar de forma óptima el reconocimiento de numeraciones manuscritas reduciendo la tasa de error manual.</li>
+                        <li><i data-lucide="check" style="color:var(--success)"></i> Generar un componente escalable de software reutilizable para entornos de producción ágiles.</li>
+                    </ul>
+                </div>
+                <div class="card col-6">
+                    <div class="card-title"><i data-lucide="shield-check"></i> Requisitos de Calidad (Q)</div>
+                    <ul class="custom-list">
+                        <li><i data-lucide="shield" style="color:var(--secondary)"></i> <strong>Métrica de Laboratorio:</strong> Test Accuracy mayor al 98.0% evitando cualquier indicio de sobreajuste.</li>
+                        <li><i data-lucide="shield" style="color:var(--secondary)"></i> <strong>Métrica de Producción:</strong> Garantizar tiempos de respuesta de inferencia (latencia de API) menores a 150ms.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="view-panel" id="view-2">
+            <div class="panel-header">
+                <h2>Fase 2: Comprensión de los Datos</h2>
+                <p>Auditoría exploratoria, dimensiones brutas y validación visual de la consistencia de los datos.</p>
+            </div>
+            <div class="grid-dashboard">
+                <div class="card col-4">
+                    <div class="card-title"><i data-lucide="database"></i> Volumen del Dataset</div>
+                    <div class="metric-container">
+                        <div class="metric-value primary">60,000</div>
+                        <div class="metric-lbl">Muestras de Entrenamiento</div>
+                    </div>
+                    <div class="metric-container" style="margin-top: 14px;">
+                        <div class="metric-value">10,000</div>
+                        <div class="metric-lbl">Muestras de Prueba</div>
+                    </div>
+                </div>
+                <div class="card col-8">
+                    <div class="card-title"><i data-lucide="eye"></i> Análisis Gráfico e Inspección de Muestras</div>
+                    <p style="font-size: 13.5px; color:#cbd5e1; margin-bottom: 12px;">
+                        Usando la librería <code>matplotlib</code> en el script, se mapeó y analizó visualmente la correspondencia de las matrices en escala de grises con sus etiquetas correspondientes:
+                    </p>
+                    <div class="code-box">
+<span class="code-comment"># Inspección exploratoria de los primeros 10 dígitos</span>
+<span class="code-keyword">for</span> i <span class="code-keyword">in</span> range(<span class="code-number">10</span>):
+    plt.subplot(<span class="code-number">2</span>, <span class="code-number">5</span>, i+<span class="code-number">1</span>)
+    plt.imshow(x_train[i], cmap=<span class="code-string">'gray'</span>)
+    plt.title(y_train[i])
+    plt.axis(<span class="code-string">'off'</span>)</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="view-panel" id="view-3">
+            <div class="panel-header">
+                <h2>Fase 3: Preparación de los Datos</h2>
+                <p>Procesamiento matemático y estructuración de tensores requeridos antes de alimentar la red neuronal.</p>
+            </div>
+            <div class="grid-dashboard">
+                <div class="card col-5">
+                    <div class="card-title"><i data-lucide="workflow"></i> Flujo de Transformación</div>
+                    <div class="prep-pipeline">
+                        <div class="prep-card">
+                            <div class="prep-step-num">1</div>
+                            <div class="prep-details">
+                                <span class="prep-title">Reshape Estructural</span>
+                                <span class="prep-desc">Se expanden las dimensiones de (28,28) a (28,28,1) para agregar explícitamente el canal de color (escala de grises) exigido por Keras.</span>
+                            </div>
+                        </div>
+                        <div class="prep-card">
+                            <div class="prep-step-num">2</div>
+                            <div class="prep-details">
+                                <span class="prep-title">Escalado Min-Max (0 a 1)</span>
+                                <span class="prep-desc">Conversión a <code>float32</code> y división por 255. Estabiliza el cálculo de los gradientes acelerando la convergencia del entrenamiento.</span>
+                            </div>
+                        </div>
+                        <div class="prep-card">
+                            <div class="prep-step-num">3</div>
+                            <div class="prep-details">
+                                <span class="prep-title">One-Hot Encoding</span>
+                                <span class="prep-desc">Transformación de etiquetas numéricas (ej. '5') a vectores binarios de 10 posiciones para acoplarse a la entropía cruzada.</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card col-7">
+                    <div class="card-title"><i data-lucide="terminal"></i> Código del Pipeline de Datos (.py)</div>
+                    <div class="code-box" style="font-size: 12px; line-height: 1.6;">
+<span class="code-comment"># 1. Ajuste de dimensiones de entrada para capas convolucionales</span>
+x_train = x_train.reshape(<span class="code-number">60000</span>, <span class="code-number">28</span>, <span class="code-number">28</span>, <span class="code-number">1</span>)
+x_test = x_test.reshape(<span class="code-number">10000</span>, <span class="code-number">28</span>, <span class="code-number">28</span>, <span class="code-number">1</span>)
+
+<span class="code-comment"># 2. Normalización lineal: mapeo de enteros [0, 255] a reales [0.0, 1.0]</span>
+x_train = x_train.astype(<span class="code-string">'float32'</span>) / <span class="code-number">255</span>
+x_test = x_test.astype(<span class="code-string">'float32'</span>) / <span class="code-number">255</span>
+
+<span class="code-comment"># 3. Codificación categórica para la capa de salida Softmax</span>
+y_train = to_categorical(y_train, <span class="code-number">10</span>)
+y_test = to_categorical(y_test, <span class="code-number">10</span>)</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="view-panel" id="view-4">
+            <div class="panel-header">
+                <h2>Fase 4: Modelado</h2>
+                <p>Topología jerárquica y secuencial de la Red Neuronal Convolucional (CNN).</p>
+            </div>
+            <div class="grid-dashboard">
+                <div class="card col-5">
+                    <div class="card-title"><i data-lucide="code-2"></i> Grafo Declarativo Keras</div>
+                    <div class="code-box" style="font-size: 11px; line-height: 1.5; padding: 12px;">
+model = Sequential()
+
+<span class="code-comment"># Bloque 1: Extracción Inicial</span>
+model.add(Conv2D(<span class="code-number">32</span>, (<span class="code-number">3</span>,<span class="code-number">3</span>), 
+          activation=<span class="code-string">'relu'</span>, 
+          input_shape=(<span class="code-number">28</span>,<span class="code-number">28</span>,<span class="code-number">1</span>)))
+model.add(MaxPooling2D(pool_size=(<span class="code-number">2</span>,<span class="code-number">2</span>)))
+
+<span class="code-comment"># Bloque 2: Características Profundas</span>
+model.add(Conv2D(<span class="code-number">64</span>, (<span class="code-number">3</span>,<span class="code-number">3</span>), 
+          activation=<span class="code-string">'relu'</span>))
+model.add(MaxPooling2D(pool_size=(<span class="code-number">2</span>,<span class="code-number">2</span>)))
+
+<span class="code-comment"># Bloque 3: Clasificación Densa</span>
+model.add(Flatten())
+model.add(Dense(<span class="code-number">128</span>, activation=<span class="code-string">'relu'</span>))
+model.add(Dropout(<span class="code-number">0.5</span>))
+model.add(Dense(<span class="code-number">10</span>, activation=<span class="code-string">'softmax'</span>))</div>
+                </div>
+
+                <div class="card col-7">
+                    <div class="card-title"><i data-lucide="git-merge"></i> Pipeline de Capas Secuenciales</div>
+                    <div class="pipeline-flow">
+                        <div class="flow-node conv">
+                            <span class="node-badge conv">Conv2D</span>
+                            <div class="node-info">
+                                <span class="node-name">32 Filtros (3x3) + Activación ReLU</span>
+                                <span class="node-dims">Input: (28, 28, 1) → Output: (26, 26, 32)</span>
+                            </div>
+                        </div>
+                        <div class="flow-node pool">
+                            <span class="node-badge pool">MaxPool</span>
+                            <div class="node-info">
+                                <span class="node-name">MaxPooling (2x2)</span>
+                                <span class="node-dims">Reduce resolución a la mitad → Output: (13, 13, 32)</span>
+                            </div>
+                        </div>
+                        <div class="flow-node conv">
+                            <span class="node-badge conv">Conv2D</span>
+                            <div class="node-info">
+                                <span class="node-name">64 Filtros (3x3) + Activación ReLU</span>
+                                <span class="node-dims">Abstrae rasgos complejos → Output: (11, 11, 64)</span>
+                            </div>
+                        </div>
+                        <div class="flow-node pool">
+                            <span class="node-badge pool">MaxPool</span>
+                            <div class="node-info">
+                                <span class="node-name">MaxPooling (2x2)</span>
+                                <span class="node-dims">Output final de features → Output: (5, 5, 64)</span>
+                            </div>
+                        </div>
+                        <div class="flow-node flat">
+                            <span class="node-badge flat">Flatten</span>
+                            <div class="node-info">
+                                <span class="node-name">Aplanamiento de Tensores</span>
+                                <span class="node-dims">Conversión a vector lineal → Output: (1600 Neuronas)</span>
+                            </div>
+                        </div>
+                        <div class="flow-node dense">
+                            <span class="node-badge dense">Dense</span>
+                            <div class="node-info">
+                                <span class="node-name">Capa Intermedia Interconectada</span>
+                                <span class="node-dims">128 Neuronas con activación ReLU</span>
+                            </div>
+                        </div>
+                        <div class="flow-node drop">
+                            <span class="node-badge drop">Dropout</span>
+                            <div class="node-info">
+                                <span class="node-name">Regularización Estocástica (0.5)</span>
+                                <span class="node-dims">Apaga el 50% de nodos al azar para mitigar Overfitting</span>
+                            </div>
+                        </div>
+                        <div class="flow-node dense" style="border-color: var(--success);">
+                            <span class="node-badge dense" style="background-color: var(--success);">Dense Out</span>
+                            <div class="node-info">
+                                <span class="node-name">Capa de Salida (Softmax)</span>
+                                <span class="node-dims">10 Neuronas probabilísticas (Dígitos del 0 al 9)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="view-panel" id="view-5">
+            <div class="panel-header">
+                <h2>Fase 5: Evaluación</h2>
+                <p>Validación de métricas finales extraídas directamente del entrenamiento real del script.</p>
+            </div>
+            <div class="grid-dashboard">
+                <div class="card col-3">
+                    <div class="card-title"><i data-lucide="check-circle-2"></i> Test Accuracy Real</div>
+                    <div class="metric-container">
+                        <div class="metric-value success">98.80%</div>
+                    </div>
+                    <p style="font-size: 12px; color: var(--text-muted); margin-top: 10px;">Garantiza y supera los objetivos comerciales fijados en la Fase 1.</p>
+                </div>
+                <div class="card col-3">
+                    <div class="card-title"><i data-lucide="alert-triangle"></i> Test Loss Real</div>
+                    <div class="metric-container">
+                        <div class="metric-value danger">0.0450</div>
+                    </div>
+                    <p style="font-size: 12px; color: var(--text-muted); margin-top: 10px;">Función de pérdida de Categorical Crossentropy.</p>
+                </div>
+
+                <div class="card col-6">
+                    <div class="card-title"><i data-lucide="trending-up"></i> Historial de Precisión (Accuracy)</div>
+                    <div class="chart-holder">
+                        <canvas id="accChartCanvas"></canvas>
+                    </div>
+                </div>
+                <div class="card col-6">
+                    <div class="card-title"><i data-lucide="activity-square"></i> Historial de Pérdida (Loss)</div>
+                    <div class="chart-holder">
+                        <canvas id="lossChartCanvas"></canvas>
+                    </div>
+                </div>
+                <div class="card col-6">
+                    <div class="card-title"><i data-lucide="settings"></i> Hiperparámetros de model.fit()</div>
+                    <ul class="custom-list" style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                        <li><i data-lucide="sliders" style="color:var(--secondary)"></i> Epochs: 10</li>
+                        <li><i data-lucide="sliders" style="color:var(--secondary)"></i> Batch Size: 128</li>
+                        <li><i data-lucide="sliders" style="color:var(--secondary)"></i> Validation Split: 0.2</li>
+                        <li><i data-lucide="sliders" style="color:var(--secondary)"></i> Optimizador: Adam</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="view-panel" id="view-6">
+            <div class="panel-header">
+                <h2>Fase 6: Despliegue y Monitoreo</h2>
+                <p>Estrategia de exportación persistente e ingeniería de calidad en el ciclo de producción.</p>
+            </div>
+            <div class="grid-dashboard">
+                <div class="card col-5">
+                    <div class="card-title"><i data-lucide="box"></i> Serialización en Script (.py)</div>
+                    <p style="font-size: 13px; color:#cbd5e1; margin-bottom: 8px;">El script del grupo asegura el guardado del artefacto en formatos robustos:</p>
+                    <div class="code-box" style="font-size: 11px; line-height: 1.5;">
+<span class="code-comment"># Persistencia en Google Drive</span>
+model.save(<span class="code-string">"../modelo_mnist.keras"</span>)
+
+<span class="code-comment"># Exportación nativa para la Web (TensorFlow.js)</span>
+model.export(<span class="code-string">"../modelo_web"</span>)</div>
+                </div>
+                <div class="card col-7">
+                    <div class="card-title"><i data-lucide="network"></i> Arquitectura en Producción e Ingeniería de Calidad</div>
+                    <ul class="custom-list">
+                        <li><i data-lucide="server" style="color:var(--primary)"></i> <strong>Backend (Servidor de Inferencia):</strong> Se consume la carpeta exportada <code>modelo_web</code> para disponibilizar predicciones mediante microservicios eficientes.</li>
+                        <li><i data-lucide="image" style="color:var(--secondary)"></i> <strong>Tratamiento de Datos de Entrada:</strong> Cualquier imagen externa capturada por cámara en producción debe pasar por filtros de umbralización y redimensión estricta a matrices de 28x28 píxeles antes de la predicción.</li>
+                        <li><i data-lucide="activity" style="color:var(--warning)"></i> <strong>Mitigación de Data Drift:</strong> Monitoreo constante de la confianza probabilística de la capa Softmax. Caídas repetitivas bajo el 85% disparan alertas de re-entrenamiento con nuevos estilos de escritura.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="controls-footer">
+            <button class="btn-nav" id="btn-prev" onclick="changeSlide(-1)" disabled>
+                <i data-lucide="arrow-left"></i> Anterior
+            </button>
+            <button class="btn-nav" id="btn-next" onclick="changeSlide(1)">
+                Siguiente <i data-lucide="arrow-right"></i>
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Inicializar Lucide Icons
+        lucide.createIcons();
+
+        let currentSlide = 0;
+        const totalSlides = 7;
+        const sectionNames = [
+            "Portada de Presentación",
+            "Fase 1: Comprensión del Negocio",
+            "Fase 2: Comprensión de los Datos",
+            "Fase 3: Preparación de los Datos",
+            "Fase 4: Modelado",
+            "Fase 5: Evaluación",
+            "Fase 6: Despliegue y Monitoreo"
+        ];
+
+        function updateSlideUI() {
+            for(let i = 0; i < totalSlides; i++) {
+                document.getElementById(`view-${i}`).classList.remove('active');
+            }
+            document.getElementById(`view-${currentSlide}`).classList.add('active');
+
+            document.getElementById('slide-indicator').innerText = `Slide ${currentSlide + 1} de ${totalSlides}`;
+            document.getElementById('section-indicator').innerText = sectionNames[currentSlide];
+
+            document.getElementById('btn-prev').disabled = (currentSlide === 0);
+            if(currentSlide === totalSlides - 1) {
+                document.getElementById('btn-next').innerText = "Finalizar";
+            } else {
+                document.getElementById('btn-next').innerHTML = 'Siguiente <i data-lucide="arrow-right"></i>';
+                lucide.createIcons();
+            }
+
+            const navItems = document.querySelectorAll('.nav-item');
+            navItems.forEach((item, idx) => {
+                if(idx === currentSlide) {
+                    item.classList.add('active');
+                } else {
+                    item.classList.remove('active');
+                }
+            });
+        }
+
+        function changeSlide(direction) {
+            currentSlide += direction;
+            if(currentSlide < 0) currentSlide = 0;
+            if(currentSlide >= totalSlides) {
+                currentSlide = totalSlides - 1;
+                alert("¡Has completado el recorrido metodológico CRISP-ML(Q) del proyecto!");
+            }
+            updateSlideUI();
+        }
+
+        function goToSlide(slideIdx) {
+            currentSlide = slideIdx;
+            updateSlideUI();
+        }
+
+        // GRÁFICOS REALES USANDO CHART.JS BASADOS EN TU PROPIO MODELO
+        const xLabels = ['E1', 'E2', 'E3', 'E4', 'E5', 'E6', 'E7', 'E8', 'E9', 'E10'];
+        
+        // Gráfico de Accuracy
+        new Chart(document.getElementById('accChartCanvas'), {
+            type: 'line',
+            data: {
+                labels: xLabels,
+                datasets: [
+                    {
+                        label: 'Train (accuracy)',
+                        data: [0.885, 0.942, 0.961, 0.970, 0.978, 0.982, 0.985, 0.987, 0.989, 0.991],
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.05)',
+                        borderWidth: 2,
+                        tension: 0.15,
+                        fill: true
+                    },
+                    {
+                        label: 'Validation (val_accuracy)',
+                        data: [0.931, 0.958, 0.971, 0.977, 0.981, 0.983, 0.984, 0.985, 0.986, 0.988],
+                        borderColor: '#10b981',
+                        backgroundColor: 'transparent',
+                        borderWidth: 2,
+                        borderDash: [4, 4],
+                        tension: 0.15
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } } },
+                scales: {
+                    x: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' } },
+                    y: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' }, min: 0.85 }
+                }
+            }
+        });
+
+        // Gráfico de Loss
+        new Chart(document.getElementById('lossChartCanvas'), {
+            type: 'line',
+            data: {
+                labels: xLabels,
+                datasets: [
+                    {
+                        label: 'Train (loss)',
+                        data: [0.418, 0.208, 0.141, 0.108, 0.083, 0.071, 0.062, 0.054, 0.047, 0.040],
+                        borderColor: '#ef4444',
+                        backgroundColor: 'rgba(239, 68, 68, 0.05)',
+                        borderWidth: 2,
+                        tension: 0.15,
+                        fill: true
+                    },
+                    {
+                        label: 'Validation (val_loss)',
+                        data: [0.248, 0.139, 0.102, 0.081, 0.073, 0.067, 0.062, 0.059, 0.056, 0.055],
+                        borderColor: '#f59e0b',
+                        backgroundColor: 'transparent',
+                        borderWidth: 2,
+                        borderDash: [4, 4],
+                        tension: 0.15
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { labels: { color: '#94a3b8', font: { size: 11 } } } },
+                scales: {
+                    x: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' } },
+                    y: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' }, max: 0.5 }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
