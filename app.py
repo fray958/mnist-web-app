@@ -5,7 +5,6 @@ import numpy as np
 import os
 import time
 from scipy.ndimage import center_of_mass
-import cv2  # Usaremos OpenCV para aislar el número del recuadro rosa
 
 app = Flask(__name__)
 
@@ -20,62 +19,38 @@ UPLOAD_FOLDER = os.path.join("static", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# Memoria temporal para el historial
+# Historial temporal
 historial_predicciones = []
 
 def procesar_imagen(ruta):
-    # 1. Abrir imagen y convertir a escala de grises
+    # 1. Abrir imagen y pasar a escala de grises
     img = Image.open(ruta).convert('L')
     img_array = np.array(img)
     
-    # 2. DETECCIÓN DE INVERSIÓN POR ESQUINAS
+    # 2. DETECCIÓN POR ESQUINAS
     esquinas = [img_array[0,0], img_array[0,-1], img_array[-1,0], img_array[-1,-1]]
     color_fondo_estimado = np.median(esquinas)
-    val_min, val_max = img_array.min(), img_array.max()
     
-    if abs(color_fondo_estimado - val_max) < abs(color_fondo_estimado - val_min):
-        img_array = 255 - img_array  # Inversión manual estable
-    else:
-        if color_fondo_estimado > 0:
-            img_array = np.clip(img_array - color_fondo_estimado, 0, 255)
-
-    # 3. Umbralización para binarizar (Blanco y Negro puro)
-    _, img_binaria = cv2.threshold(img_array, 100, 255, cv2.THRESH_BINARY)
-
-    # 4. EXTRACCIÓN DEL DÍGITO CENTRAL (Elimina marcos y fondos rosa/blancos)
-    contornos, _ = cv2.findContours(img_binaria, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Si el fondo es claro, invertimos para que el fondo sea negro
+    if color_fondo_estimado > 127:
+        img = ImageOps.invert(img)
+        img_array = np.array(img)
     
-    img_digito = np.zeros_like(img_binaria)
-    if contornos:
-        # Buscamos el contorno más grande o el que esté más centrado
-        h, w = img_binaria.shape
-        centro_img = (w // 2, h // 2)
-        
-        mejor_contorno = None
-        min_distancia = float('inf')
-        
-        for c in contornos:
-            M = cv2.moments(c)
-            if M["m00"] > 10:  # Ignorar ruidos diminutos
-                cx = int(M["m10"] / M["m00"])
-                cy = int(M["m01"] / M["m00"])
-                distancia = ((cx - centro_img[0])**2 + (cy - centro_img[1])**2)**0.5
-                if distancia < min_distancia:
-                    min_distancia = distancia
-                    mejor_contorno = c
-        
-        if mejor_contorno is not None:
-            # Dibujamos SOLO el número ignorando bordes decorativos
-            cv2.drawContours(img_digito, [mejor_contorno], -1, 255, -1)
-            # Aplicamos máscara para conservar texturas originales del trazo
-            img_final_raw = cv2.bitwise_and(img_array, img_array, mask=img_digito)
-        else:
-            img_final_raw = img_binaria
-    else:
-        img_final_raw = img_binaria
-
+    # 3. LIMPIEZA DE BORDES BLANCOS/ROSA (Dynamic Masking)
+    # Si queda un recuadro brillante alrededor, lo limpiamos apagando los bordes extremos
+    h, w = img_array.shape
+    borde_h = int(h * 0.08)
+    borde_w = int(w * 0.08)
+    img_array[:borde_h, :] = 0
+    img_array[-borde_h:, :] = 0
+    img_array[:, :borde_w] = 0
+    img_array[:, -borde_w:] = 0
+    
+    # 4. Umbral estricto para rescatar solo el número
+    img_array = np.where(img_array > 110, img_array, 0)
+    
     # 5. Ajustar caja de contorno (Bounding Box)
-    img_limpia = Image.fromarray(img_final_raw)
+    img_limpia = Image.fromarray(img_array.astype(np.uint8))
     caja = img_limpia.getbbox()
     if caja:
         img_limpia = img_limpia.crop(caja)
@@ -95,12 +70,12 @@ def procesar_imagen(ruta):
     img_20x20 = img_limpia.resize((nuevo_ancho, nuevo_alto), resample=Image.LANCZOS)
     img_final_array = np.zeros((28, 28))
         
-    # 7. Centrar en el lienzo de 28x28
+    # 7. Centrar en 28x28
     inicio_x = (28 - nuevo_ancho) // 2
     inicio_y = (28 - nuevo_alto) // 2
     img_final_array[inicio_y:inicio_y+nuevo_alto, inicio_x:inicio_x+nuevo_ancho] = np.array(img_20x20)
         
-    # 8. Alineación por Centro de Masa
+    # 8. Centro de Masa
     cy, cx = center_of_mass(img_final_array)
     if not np.isnan(cx) and not np.isnan(cy):
         shift_x = int(round(14.0 - cx))
@@ -108,7 +83,7 @@ def procesar_imagen(ruta):
         img_final_array = np.roll(img_final_array, shift_x, axis=1)
         img_final_array = np.roll(img_final_array, shift_y, axis=0)
         
-    # 9. Suavizado y Normalización para la CNN
+    # 9. Suavizado e Inferencia
     img_pil_final = Image.fromarray(img_final_array.astype(np.uint8))
     img_pil_final = img_pil_final.filter(ImageFilter.SMOOTH_MORE)
         
@@ -129,7 +104,6 @@ def index():
             ruta = os.path.join(app.config['UPLOAD_FOLDER'], nombre_unico)
             archivo.save(ruta)
             
-            # Procesar y predecir
             img = procesar_imagen(ruta)
             prediction_output = model(img)
             if isinstance(prediction_output, dict):
@@ -141,7 +115,6 @@ def index():
             resultado = int(np.argmax(prediction))
             imagen = ruta.replace("\\", "/")
             
-            # Guardar en el historial
             hora_actual = time.strftime("%H:%M:%S")
             historial_predicciones.insert(0, {
                 "imagen_url": imagen,
