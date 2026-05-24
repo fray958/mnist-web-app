@@ -23,17 +23,23 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 historial_predicciones = []
 
 def procesar_imagen(ruta):
-    img = Image.open(ruta).convert('L')
+# 1. Abrir en escala de grises
+img = Image.open(ruta).convert('L')
+# 2. --- NUEVO: DETECCIÓN INTELIGENTE DE INVERSIÓN ---
+# Convertimos a array temporal para analizar el fondo
+arr_temporal = np.array(img)
+# Si el valor promedio de los píxeles es mayor a 127, el fondo es predominantemente claro
+if np.mean(arr_temporal) > 127:
     img = ImageOps.invert(img)
-    
+    # 3. Umbralización dinámica (Eliminar sombras menores)
     img_array = np.array(img)
     img_array = np.where(img_array > 110, img_array, 0)
-    
+    # 4. Ajustar caja de contorno (Bounding Box)
     img_limpia = Image.fromarray(img_array)
     caja = img_limpia.getbbox()
     if caja:
-        img_limpia = img_limpia.crop(caja)
-    
+    img_limpia = img_limpia.crop(caja)
+    # 5. Redimensionar manteniendo proporciones
     ancho, alto = img_limpia.size
     if ancho > alto:
         nuevo_ancho = 20
@@ -47,25 +53,24 @@ def procesar_imagen(ruta):
     
     img_20x20 = img_limpia.resize((nuevo_ancho, nuevo_alto), resample=Image.LANCZOS)
     img_final_array = np.zeros((28, 28))
-    
-    inicio_x = (28 - nuevo_ancho) // 2
-    inicio_y = (28 - nuevo_alto) // 2
-    img_final_array[inicio_y:inicio_y+nuevo_alto, inicio_x:inicio_x+nuevo_ancho] = np.array(img_20x20)
-    
-    cy, cx = center_of_mass(img_final_array)
-    if not np.isnan(cx) and not np.isnan(cy):
-        shift_x = int(round(14.0 - cx))
-        shift_y = int(round(14.0 - cy))
-        img_final_array = np.roll(img_final_array, shift_x, axis=1)
-        img_final_array = np.roll(img_final_array, shift_y, axis=0)
-        
-    img_pil_final = Image.fromarray(img_final_array.astype(np.uint8))
-    img_pil_final = img_pil_final.filter(ImageFilter.SMOOTH_MORE)
-    
-    img_cnn = np.array(img_pil_final) / 255.0
-    img_cnn = img_cnn.reshape(1, 28, 28, 1).astype(np.float32)
-    
-    return img_cnn
+        # 6. Centrar en el lienzo de 28x28
+        inicio_x = (28 - nuevo_ancho) // 2
+        inicio_y = (28 - nuevo_alto) // 2
+        img_final_array[inicio_y:inicio_y+nuevo_alto, inicio_x:inicio_x+nuevo_ancho] = np.array(img_20x20)
+        # 7. Alineación por Centro de Masa
+        cy, cx = center_of_mass(img_final_array)
+        if not np.isnan(cx) and not np.isnan(cy):
+            shift_x = int(round(14.0 - cx))
+            shift_y = int(round(14.0 - cy))
+            img_final_array = np.roll(img_final_array, shift_x, axis=1)
+            img_final_array = np.roll(img_final_array, shift_y, axis=0)
+        # 8. Suavizado final de trazo
+        img_pil_final = Image.fromarray(img_final_array.astype(np.uint8))
+        img_pil_final = img_pil_final.filter(ImageFilter.SMOOTH_MORE)
+        # 9. Normalización para la entrada de la CNN
+        img_cnn = np.array(img_pil_final) / 255.0
+        img_cnn = img_cnn.reshape(1, 28, 28, 1).astype(np.float32)
+        return img_cnn
 
 @app.route("/", methods=["GET", "POST"])
 def index():
