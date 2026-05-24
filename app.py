@@ -25,37 +25,42 @@ historial_predicciones = []
 def procesar_imagen(ruta):
     # 1. Abrir imagen y pasar a escala de grises
     img = Image.open(ruta).convert('L')
-    img_array = np.array(img)
+    img_array = np.array(img, dtype=np.float32)
     
-    # 2. DETECCIÓN POR ESQUINAS
-    esquinas = [img_array[0,0], img_array[0,-1], img_array[-1,0], img_array[-1,-1]]
-    color_fondo_estimado = np.median(esquinas)
+    # 2. SEGMENTACIÓN AVANZADA POR HISTOGRAMA (Detecta cualquier color de fondo automáticamente)
+    # Encontramos el valor de gris que más predomina (el fondo de la imagen)
+    valores, conteos = np.unique(img_array, return_counts=True)
+    color_fondo = valores[np.argmax(conteos)]
     
-    # Si el fondo es claro, invertimos para que el fondo sea negro
-    if color_fondo_estimado > 127:
-        img = ImageOps.invert(img)
-        img_array = np.array(img)
-    
-    # 3. LIMPIEZA DE BORDES BLANCOS/ROSA (Dynamic Masking)
-    # Si queda un recuadro brillante alrededor, lo limpiamos apagando los bordes extremos
+    # Si el fondo dominante es claro (Blanco/Gris claro de tus pruebas anteriores)
+    if color_fondo > 127:
+        # Invertimos para que el fondo pase a ser negro y el número blanco
+        img_array = 255.0 - img_array
+    else:
+        # Si el fondo dominante es oscuro o de color (como el rosa, que en grises es oscuro)
+        # Restamos el fondo y dejamos el trazo blanco brillante intacto
+        img_array = img_array - color_fondo
+        img_array = np.clip(img_array, 0, 255)
+
+    # 3. FILTRO DE CONFIRMACIÓN (Elimina ruidos residuales de bordes blancos/decorativos)
     h, w = img_array.shape
-    borde_h = int(h * 0.08)
-    borde_w = int(w * 0.08)
+    borde_h = int(h * 0.06)
+    borde_w = int(w * 0.06)
     img_array[:borde_h, :] = 0
     img_array[-borde_h:, :] = 0
     img_array[:, :borde_w] = 0
     img_array[:, -borde_w:] = 0
+
+    # Binarización estricta: Limpia cualquier rastro del recuadro rosa
+    img_array = np.where(img_array > 90, img_array, 0)
     
-    # 4. Umbral estricto para rescatar solo el número
-    img_array = np.where(img_array > 110, img_array, 0)
-    
-    # 5. Ajustar caja de contorno (Bounding Box)
+    # 4. Ajustar caja de contorno (Bounding Box) del número aislado
     img_limpia = Image.fromarray(img_array.astype(np.uint8))
     caja = img_limpia.getbbox()
     if caja:
         img_limpia = img_limpia.crop(caja)
             
-    # 6. Redimensionar manteniendo proporciones
+    # 5. Redimensionar manteniendo proporciones
     ancho, alto = img_limpia.size
     if ancho > alto:
         nuevo_ancho = 20
@@ -68,14 +73,14 @@ def procesar_imagen(ruta):
     nuevo_alto = max(1, nuevo_alto)
         
     img_20x20 = img_limpia.resize((nuevo_ancho, nuevo_alto), resample=Image.LANCZOS)
-    img_final_array = np.zeros((28, 28))
+    img_final_array = np.zeros((28, 28), dtype=np.float32)
         
-    # 7. Centrar en 28x28
+    # 6. Centrar en el lienzo estándar de 28x28
     inicio_x = (28 - nuevo_ancho) // 2
     inicio_y = (28 - nuevo_alto) // 2
     img_final_array[inicio_y:inicio_y+nuevo_alto, inicio_x:inicio_x+nuevo_ancho] = np.array(img_20x20)
         
-    # 8. Centro de Masa
+    # 7. Alineación perfecta usando el Centro de Masa
     cy, cx = center_of_mass(img_final_array)
     if not np.isnan(cx) and not np.isnan(cy):
         shift_x = int(round(14.0 - cx))
@@ -83,10 +88,11 @@ def procesar_imagen(ruta):
         img_final_array = np.roll(img_final_array, shift_x, axis=1)
         img_final_array = np.roll(img_final_array, shift_y, axis=0)
         
-    # 9. Suavizado e Inferencia
+    # 8. Suavizado idéntico al dataset MNIST
     img_pil_final = Image.fromarray(img_final_array.astype(np.uint8))
     img_pil_final = img_pil_final.filter(ImageFilter.SMOOTH_MORE)
         
+    # 9. Normalización final para la entrada de la CNN
     img_cnn = np.array(img_pil_final) / 255.0
     img_cnn = img_cnn.reshape(1, 28, 28, 1).astype(np.float32)
         
@@ -104,6 +110,7 @@ def index():
             ruta = os.path.join(app.config['UPLOAD_FOLDER'], nombre_unico)
             archivo.save(ruta)
             
+            # Ejecutar el pipeline
             img = procesar_imagen(ruta)
             prediction_output = model(img)
             if isinstance(prediction_output, dict):
@@ -115,6 +122,7 @@ def index():
             resultado = int(np.argmax(prediction))
             imagen = ruta.replace("\\", "/")
             
+            # Guardar en el historial
             hora_actual = time.strftime("%H:%M:%S")
             historial_predicciones.insert(0, {
                 "imagen_url": imagen,
