@@ -25,20 +25,24 @@ historial_predicciones = []
 def procesar_imagen(ruta):
 # 1. Abrir en escala de grises
 img = Image.open(ruta).convert('L')
+
 # 2. --- NUEVO: DETECCIÓN INTELIGENTE DE INVERSIÓN ---
 # Convertimos a array temporal para analizar el fondo
 arr_temporal = np.array(img)
 # Si el valor promedio de los píxeles es mayor a 127, el fondo es predominantemente claro
 if np.mean(arr_temporal) > 127:
     img = ImageOps.invert(img)
+    
     # 3. Umbralización dinámica (Eliminar sombras menores)
     img_array = np.array(img)
     img_array = np.where(img_array > 110, img_array, 0)
+    
     # 4. Ajustar caja de contorno (Bounding Box)
     img_limpia = Image.fromarray(img_array)
     caja = img_limpia.getbbox()
     if caja:
-    img_limpia = img_limpia.crop(caja)
+        img_limpia = img_limpia.crop(caja)
+        
     # 5. Redimensionar manteniendo proporciones
     ancho, alto = img_limpia.size
     if ancho > alto:
