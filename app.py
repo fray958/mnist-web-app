@@ -45,6 +45,11 @@ def calcular_otsu_nativo(imagen_gris):
 def procesar_imagen(ruta):
     # 1. Abrir imagen y pasar a escala de grises
     img = Image.open(ruta).convert('L')
+    
+    # 🔥 OPTIMIZACIÓN DE VELOCIDAD: Reducir tamaño de capturas gigantes antes de procesar matrices.
+    # Mantiene la proporción original intacta sin deformar el número, pero acelera el procesamiento x100.
+    img.thumbnail((500, 500), Image.Resampling.LANCZOS)
+    
     img_array = np.array(img, dtype=np.float32)
     h, w = img_array.shape
     
