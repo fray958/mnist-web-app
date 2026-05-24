@@ -1,6 +1,7 @@
 flask
-tensorflow
 keras
+tensorflow
 pillow
 numpy
 scipy
+opencv-python-headless
