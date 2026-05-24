@@ -1,6 +1,6 @@
-from flask import Flask, render_template, request, url_for
+from flask import Flask, render_template, request
 from keras.layers import TFSMLayer
-from PIL import Image, ImageOps, ImageFilter
+from PIL import Image, ImageFilter
 import numpy as np
 import os
 import time
@@ -28,20 +28,16 @@ def procesar_imagen(ruta):
     img_array = np.array(img, dtype=np.float32)
     h, w = img_array.shape
     
-    # 2. LOCALIZAR LA REGIÓN DE INTERÉS (Detectar el recuadro central útil)
-    # Creamos una máscara para encontrar cualquier zona que no sea el fondo oscuro del lienzo gigante
-    mascara_bloque = (img_array > 30).astype(np.uint8)
+    # 2. LOCALIZAR LA REGIÓN DE INTERÉS (Eliminar el lienzo oscuro gigante de la captura)
+    mascara_bloque = (img_array > 25).astype(np.uint8)
     estructuras, num_features = label(mascara_bloque)
     
-    # Por defecto, usamos toda la imagen
     ymin, xmin, ymax, xmax = 0, 0, h, w
-    
     if num_features > 0:
         centro_y, centro_x = h // 2, w // 2
         mejor_id = 1
         dist_min = float('inf')
         
-        # Encontrar el bloque/recuadro más cercano al centro de la captura
         for i in range(1, num_features + 1):
             componente = (estructuras == i)
             cy, cx = center_of_mass(componente)
@@ -51,39 +47,42 @@ def procesar_imagen(ruta):
                     dist_min = dist
                     mejor_id = i
         
-        # Obtener las coordenadas del recuadro del número
         filas, columnas = np.where(estructuras == mejor_id)
         if len(filas) > 0 and len(columnas) > 0:
             ymin, xmin = np.min(filas), np.min(columnas)
             ymax, xmax = np.max(filas), np.max(columnas)
-    
-    # Recortamos la imagen para quedarnos SOLO con el cuadro del número (adiós lienzo negro gigante)
+            
+    # Recortar al bloque útil central
     recorte = img_array[ymin:ymax, xmin:xmax]
     rh, rw = recorte.shape
     
-    # 3. SEGMENTACIÓN ADAPTATIVA DENTRO DEL RECORTE
-    # Evaluamos el color de las esquinas del recorte para saber si el fondo interno es claro u oscuro
-    esquinas = [recorte[0, 0], recorte[0, rw-1], recorte[rh-1, 0], recorte[rh-1, rw-1]]
-    fondo_claro = np.mean(esquinas) > 120
+    # 3. BINARIZACIÓN ADAPTATIVA ROBUSTA
+    # Calculamos el umbral promedio del recorte para separar el trazo
+    umbral_medio = np.mean(recorte)
     
-    if fondo_claro:
-        # Caso para el 2 y el 3 (Trazo oscuro sobre fondo blanco limpio)
-        # Evaluamos si el número es rojizo/oscuro. Invertimos para que el trazo sea blanco brillante.
-        mascara_num = (recorte < 110).astype(np.float32) * 255.0
+    # Evaluamos si el centro exacto del recorte es muy brillante (Caso del 8 rosa/blanco)
+    centro_rh, centro_rw = rh // 2, rw // 2
+    regio_central = recorte[max(0, centro_rh-5):min(rh, centro_rh+5), max(0, centro_rw-5):min(rw, centro_rw+5)]
+    brillo_centro = np.mean(regio_central) if regio_central.size > 0 else 0
+    
+    if brillo_centro > 210:
+        # Caso 8 Rosa: El número es blanco puro sobre fondo rosa (gris intermedio)
+        mascara_num = (recorte > 220).astype(np.float32) * 255.0
     else:
-        # Caso para el 8 rosa (El fondo del recorte es el rosa, que en grises es intermedio/oscuro)
-        # Buscamos el trazo blanco brillante del centro
-        mascara_num = np.where(recorte > 200, 255.0, 0.0)
-        
-        # Limpieza rápida de pequeños residuos del borde del recuadro rosa
-        b_h = max(1, int(rh * 0.05))
-        b_w = max(1, int(rw * 0.05))
-        mascara_num[:b_h, :] = 0
-        mascara_num[-b_h:, :] = 0
-        mascara_num[:, :b_w] = 0
-        mascara_num[:, -b_w:] = 0
+        # Caso 2 y 3: Número oscuro sobre fondo claro o texturizado
+        # Aplicamos binarización: lo que sea menor al umbral medio será nuestro trazo
+        mascara_num = (recorte < umbral_medio * 0.9).astype(np.float32) * 255.0
 
-    # 4. AISLAR EL DÍGITO DEFINITIVO
+    # 4. LIMPIEZA DE BORDES RESIDUALES
+    # Limpiamos un pequeño margen del borde del recorte para evitar marcos blancos falsos
+    margen_h = max(1, int(rh * 0.06))
+    margen_w = max(1, int(rw * 0.06))
+    mascara_num[:margen_h, :] = 0
+    mascara_num[-margen_h:, :] = 0
+    mascara_num[:, :margen_w] = 0
+    mascara_num[:, -margen_w:] = 0
+
+    # 5. AISLAR EL OBJETO COMPONENTE PRINCIPAL (El dígito)
     estructuras_num, num_feats_num = label(mascara_num > 0)
     img_solo_numero = np.zeros_like(mascara_num)
     
@@ -105,7 +104,7 @@ def procesar_imagen(ruta):
     else:
         img_solo_numero = mascara_num
 
-    # 5. AJUSTAR CUADRANTE Y PROCESAMIENTO Estándar MNIST (28x28)
+    # 6. ENCUADRE ESTÁNDAR MNIST (Redimensionar a 20x20 conservando aspecto)
     img_limpia = Image.fromarray(img_solo_numero.astype(np.uint8))
     caja = img_limpia.getbbox()
     if caja:
@@ -125,11 +124,12 @@ def procesar_imagen(ruta):
     img_20x20 = img_limpia.resize((nuevo_ancho, nuevo_alto), resample=Image.LANCZOS)
     img_final_array = np.zeros((28, 28), dtype=np.float32)
         
+    # Centrar en recuadro de 28x28
     inicio_x = (28 - nuevo_ancho) // 2
     inicio_y = (28 - nuevo_alto) // 2
     img_final_array[inicio_y:inicio_y+nuevo_alto, inicio_x:inicio_x+nuevo_ancho] = np.array(img_20x20)
         
-    # Centrar usando Centro de Masa
+    # Ajuste por Centro de Masa mas estricto
     cy, cx = center_of_mass(img_final_array)
     if not np.isnan(cx) and not np.isnan(cy):
         shift_x = int(round(14.0 - cx))
@@ -137,11 +137,11 @@ def procesar_imagen(ruta):
         img_final_array = np.roll(img_final_array, shift_x, axis=1)
         img_final_array = np.roll(img_final_array, shift_y, axis=0)
         
-    # Suavizado anti-aliasing idéntico al dataset MNIST
+    # Suavizado idéntico al entrenamiento de la red
     img_pil_final = Image.fromarray(img_final_array.astype(np.uint8))
     img_pil_final = img_pil_final.filter(ImageFilter.SMOOTH_MORE)
         
-    # Normalización para la entrada de la CNN (0.0 a 1.0)
+    # Normalizar rango [0.0, 1.0]
     img_cnn = np.array(img_pil_final) / 255.0
     img_cnn = img_cnn.reshape(1, 28, 28, 1).astype(np.float32)
         
