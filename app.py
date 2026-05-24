@@ -23,22 +23,17 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 historial_predicciones = []
 
 def calcular_otsu_nativo(imagen_gris):
-    """Calcula el umbral de Otsu de forma matemática usando solo numpy"""
+    """Calcula el umbral óptimo de Otsu automáticamente"""
     hist, bin_edges = np.histogram(imagen_gris, bins=256, range=(0, 256))
     bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2.0
     
-    # Probabilidades de cada nivel de gris
     weight1 = np.cumsum(hist)
     weight2 = np.cumsum(hist[::-1])[::-1]
     
-    # Medias de las clases
     mean1 = np.cumsum(hist * bin_centers) / np.maximum(weight1, 1)
     mean2 = (np.cumsum((hist * bin_centers)[::-1]) / np.maximum(weight2[::-1], 1))[::-1]
     
-    # Varianza entre clases
     variance_between = weight1 * weight2 * (mean1 - mean2) ** 2
-    
-    # Maximizar la varianza para encontrar el umbral óptimo
     idx = np.argmax(variance_between)
     return bin_centers[idx]
 
@@ -46,23 +41,35 @@ def procesar_imagen(ruta):
     # 1. Abrir imagen y pasar a escala de grises
     img = Image.open(ruta).convert('L')
     
-    # 🔥 OPTIMIZACIÓN DE VELOCIDAD: Reducir tamaño de capturas gigantes antes de procesar matrices.
-    # Mantiene la proporción original intacta sin deformar el número, pero acelera el procesamiento x100.
+    # 🔥 Filtro de velocidad para capturas de pantalla gigantes
     img.thumbnail((500, 500), Image.Resampling.LANCZOS)
-    
     img_array = np.array(img, dtype=np.float32)
     h, w = img_array.shape
     
-    # 2. LOCALIZAR LA REGIÓN DE INTERÉS (Quitar márgenes negros externos de capturas)
-    mascara_bloque = (img_array > 25).astype(np.uint8)
-    estructuras, num_features = label(mascara_bloque)
+    # 2. binarización inteligente automática (Detecta si el fondo es claro u oscuro)
+    thresh = calcular_otsu_nativo(img_array)
     
-    ymin, xmin, ymax, xmax = 0, 0, h, w
+    # Determinar si el fondo predominante es claro u oscuro analizando las esquinas
+    esquinas = [img_array[0,0], img_array[0,-1], img_array[-1,0], img_array[-1,-1]]
+    fondo_claro = np.mean(esquinas) > thresh
+    
+    if fondo_claro:
+        # Si el fondo es claro, el número es lo oscuro
+        mascara_binaria = (img_array < thresh).astype(np.float32) * 255.0
+    else:
+        # Si el fondo es oscuro, el número es lo claro (como tus nuevas imágenes)
+        mascara_binaria = (img_array > thresh).astype(np.float32) * 255.0
+
+    # 3. AISLAR EL OBJETO CENTRAL (El dígito)
+    estructuras, num_features = label(mascara_binaria > 50)
+    img_solo_numero = np.zeros_like(mascara_binaria)
+    
     if num_features > 0:
         centro_y, centro_x = h // 2, w // 2
         mejor_id = 1
         dist_min = float('inf')
         
+        # Buscar el componente más cercano al centro físico de la imagen
         for i in range(1, num_features + 1):
             componente = (estructuras == i)
             cy, cx = center_of_mass(componente)
@@ -71,62 +78,12 @@ def procesar_imagen(ruta):
                 if dist < dist_min:
                     dist_min = dist
                     mejor_id = i
-        
-        filas, columnas = np.where(estructuras == mejor_id)
-        if len(filas) > 0 and len(columnas) > 0:
-            ymin, xmin = np.min(filas), np.min(columnas)
-            ymax, xmax = np.max(filas), np.max(columnas)
-            
-    # Recortar al bloque útil del número
-    recorte = img_array[ymin:ymax, xmin:xmax]
-    rh, rw = recorte.shape
-    
-    # 3. SEGMENTACIÓN ADAPTATIVA POR CASOS
-    centro_rh, centro_rw = rh // 2, rw // 2
-    regio_central = recorte[max(0, centro_rh-5):min(rh, centro_rh+5), max(0, centro_rw-5):min(rw, centro_rw+5)]
-    brillo_centro = np.mean(regio_central) if regio_central.size > 0 else 0
-    
-    if brillo_centro > 210:
-        # Caso 8 Rosa: El número es blanco brillante sobre el fondo rosa
-        mascara_num = (recorte > 220).astype(np.float32) * 255.0
-    else:
-        # Caso 2 y 3 (Fotos reales texturizadas y capturas claras)
-        # Usamos nuestro Otsu nativo ultra preciso
-        thresh = calcular_otsu_nativo(recorte)
-        # El trazo es más oscuro que el fondo de la pared
-        mascara_num = (recorte < thresh).astype(np.float32) * 255.0
-
-    # 4. LIMPIEZA DE BORDES RESIDUALES
-    margen_h = max(1, int(rh * 0.06))
-    margen_w = max(1, int(rw * 0.06))
-    mascara_num[:margen_h, :] = 0
-    mascara_num[-margen_h:, :] = 0
-    mascara_num[:, :margen_w] = 0
-    mascara_num[:, -margen_w:] = 0
-
-    # 5. AISLAR EL OBJETO CENTRAL (El dígito)
-    estructuras_num, num_feats_num = label(mascara_num > 0)
-    img_solo_numero = np.zeros_like(mascara_num)
-    
-    if num_feats_num > 0:
-        c_y, c_x = rh // 2, rw // 2
-        id_num = 1
-        d_min = float('inf')
-        
-        for i in range(1, num_feats_num + 1):
-            comp = (estructuras_num == i)
-            cy, cx = center_of_mass(comp)
-            if not np.isnan(cx) and not np.isnan(cy):
-                dist = (cy - c_y)**2 + (cx - c_x)**2
-                if dist < d_min:
-                    d_min = dist
-                    id_num = i
                     
-        img_solo_numero = np.where(estructuras_num == id_num, 255.0, 0.0)
+        img_solo_numero = np.where(estructuras == mejor_id, 255.0, 0.0)
     else:
-        img_solo_numero = mascara_num
+        img_solo_numero = mascara_binaria
 
-    # 6. ENCUADRE Estándar MNIST (28x28)
+    # 4. ENCUADRE Estándar MNIST (Centrado perfecto en caja de 28x28)
     img_limpia = Image.fromarray(img_solo_numero.astype(np.uint8))
     caja = img_limpia.getbbox()
     if caja:
@@ -150,7 +107,7 @@ def procesar_imagen(ruta):
     inicio_y = (28 - nuevo_alto) // 2
     img_final_array[inicio_y:inicio_y+nuevo_alto, inicio_x:inicio_x+nuevo_ancho] = np.array(img_20x20)
         
-    # Ajuste por Centro de Masa
+    # Ajuste fino por Centro de Masa
     cy, cx = center_of_mass(img_final_array)
     if not np.isnan(cx) and not np.isnan(cy):
         shift_x = int(round(14.0 - cx))
@@ -158,11 +115,11 @@ def procesar_imagen(ruta):
         img_final_array = np.roll(img_final_array, shift_x, axis=1)
         img_final_array = np.roll(img_final_array, shift_y, axis=0)
         
-    # Suavizado anti-aliasing idéntico al dataset
+    # Filtro anti-aliasing idéntico al entrenamiento de MNIST
     img_pil_final = Image.fromarray(img_final_array.astype(np.uint8))
     img_pil_final = img_pil_final.filter(ImageFilter.SMOOTH_MORE)
         
-    # Normalizar rango [0.0, 1.0]
+    # Normalizar a rango [0.0, 1.0] para la CNN
     img_cnn = np.array(img_pil_final) / 255.0
     img_cnn = img_cnn.reshape(1, 28, 28, 1).astype(np.float32)
         
