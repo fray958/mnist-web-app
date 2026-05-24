@@ -150,7 +150,7 @@
             font-weight: 600;
         }
 
-        /* --- NUEVOS ESTILOS PARA EL HISTORIAL --- */
+        /* --- ESTILOS DEL HISTORIAL --- */
         .history-section {
             margin-top: 20px;
             text-align: left;
@@ -225,7 +225,7 @@
         <div class="dashboard-grid">
             <div class="card">
                 <h3>Imagen Recibida en Servidor</h3>
-                <img class="img-preview" src="{{ url_for('static', filename=imagen.split('static/')[-1]) }}?t={{ resultado }}" width="220" alt="Entrada">
+                <img class="img-preview" src="{{ url_for('static', filename=imagen.split('static/')[-1]) }}?t={{ range(1, 999999) | random }}" width="220" alt="Entrada">
             </div>
             
             <div class="card">
@@ -247,7 +247,7 @@
             <div class="history-item">
                 <div class="history-left">
                     <span class="history-time">[{{ item.hora }}]</span>
-                    <img class="img-thumbnail" src="{{ url_for('static', filename=item.imagen_url.split('static/')[-1]) }}" width="45" height="45" alt="Miniatura">
+                    <img class="img-thumbnail" src="{{ url_for('static', filename=item.imagen_url.split('static/')[-1]) }}?t={{ range(1, 999999) | random }}" width="45" height="45" alt="Miniatura">
                     <span style="color: var(--text-muted); font-size: 0.9rem;">Análisis de trazo digital</span>
                 </div>
                 <div class="history-result" title="Número Detectado">
