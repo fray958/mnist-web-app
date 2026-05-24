@@ -35,19 +35,16 @@ def procesar_imagen(ruta):
     region_central = img_array[max(0, centro_y-15):min(h, centro_y+15), max(0, centro_x-15):min(w, centro_x+15)]
     brillo_centro = np.mean(region_central)
     
-    # 3. SEGMENTACIÓN DE DOBLE VÍA (Sirve para fondo blanco tradicional y para el 8 rosa en fondo oscuro)
+    # 3. SEGMENTACIÓN DE DOBLE VÍA
     if brillo_centro > 200:
         # Caso 1: El centro es sumamente brillante (el trazo del 8 rosa)
-        # Extraemos lo puramente blanco e ignoramos el recuadro rosa de fondo
         mascara = (img_array > 220).astype(np.uint8)
     else:
-        # Caso 2: El centro no es totalmente blanco (Fondo claro con número negro o similar)
-        # Tomamos esquinas para validar si el fondo exterior es claro u oscuro
+        # Caso 2: Fondo claro con número negro o similar
         esquinas = [img_array[0, 0], img_array[0, w-1], img_array[h-1, 0], img_array[h-1, w-1]]
         if np.mean(esquinas) > 127:
             mascara = (img_array < 100).astype(np.uint8)
         else:
-            # Respaldo para trazos claros sobre fondos complejos
             mascara = (img_array > 180).astype(np.uint8)
 
     # 4. FILTRADO POR CONECTIVIDAD (Aislar la isla del número)
@@ -60,7 +57,7 @@ def procesar_imagen(ruta):
         
         for i in range(1, num_features + 1):
             componente_mascara = (estructuras_conectadas == i)
-            # Descartar si el componente toca los bordes absolutos de la imagen (marcos externos)
+            # Descartar si el componente toca los bordes absolutos de la imagen
             if componente_mascara[0, :].any() or componente_mascara[-1, :].any() or componente_mascara[:, 0].any() or componente_mascara[:, -1].any():
                 continue
                 
@@ -73,7 +70,6 @@ def procesar_imagen(ruta):
                     
         img_solo_numero = np.where(estructuras_conectadas == mejor_id, 255.0, 0.0)
     
-    # Si la limpieza extrema borró todo, usamos umbral adaptativo directo del centro
     if np.sum(img_solo_numero) == 0:
         img_solo_numero = np.where((img_array > 215) & (img_array < 255), 255.0, 0.0)
 
@@ -148,7 +144,7 @@ def index():
             historial_predicciones.insert(0, {
                 "imagen_url": imagen,
                 "resultado": resultado,
-                "hora": clock_time
+                "hora": hora_actual
             })
                         
             if len(historial_predicciones) > 5:
