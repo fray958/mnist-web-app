@@ -64,7 +64,7 @@ def procesar_imagen(ruta):
             if not np.isnan(cx) and not np.isnan(cy):
                 dist = (cy - centro_y)**2 + (cx - centro_x)**2
                 if dist < dist_min:
-                    distancia_minima = dist
+                    dist_min = dist
                     mejor_id = i
         
         filas, columnas = np.where(estructuras == mejor_id)
