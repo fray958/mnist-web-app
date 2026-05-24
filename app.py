@@ -5,6 +5,7 @@ import numpy as np
 import os
 import time
 from scipy.ndimage import center_of_mass
+import cv2  # Usaremos OpenCV para aislar el número del recuadro rosa
 
 app = Flask(__name__)
 
@@ -14,50 +15,72 @@ model = TFSMLayer(
     call_endpoint='serve'
 )
 
-# Configuración de carpetas para guardar las imágenes subidas
+# Configuración de carpetas
 UPLOAD_FOLDER = os.path.join("static", "uploads")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-# Memoria temporal para el historial de la interfaz web
+# Memoria temporal para el historial
 historial_predicciones = []
 
 def procesar_imagen(ruta):
-    # 1. Abrir la imagen y convertirla a escala de grises
+    # 1. Abrir imagen y convertir a escala de grises
     img = Image.open(ruta).convert('L')
     img_array = np.array(img)
     
-    # 2. DETECCIÓN INTELIGENTE AVANZADA (Muestreo de esquinas)
-    # Extraemos el color de las 4 esquinas de la imagen para identificar el fondo
+    # 2. DETECCIÓN DE INVERSIÓN POR ESQUINAS
     esquinas = [img_array[0,0], img_array[0,-1], img_array[-1,0], img_array[-1,-1]]
     color_fondo_estimado = np.median(esquinas)
-    
-    # Buscamos los valores máximos y mínimos absolutos de la imagen
     val_min, val_max = img_array.min(), img_array.max()
     
-    # Si el fondo estimado está más cerca del valor máximo (fondo claro), invertimos
     if abs(color_fondo_estimado - val_max) < abs(color_fondo_estimado - val_min):
-        img = ImageOps.invert(img)
-        img_array = np.array(img)
+        img_array = 255 - img_array  # Inversión manual estable
     else:
-        # Si el fondo ya es oscuro (como el rosa o azul), limpiamos el ruido del fondo
-        # restando su valor para convertirlo en negro absoluto (0) y resaltar el dígito blanco
         if color_fondo_estimado > 0:
             img_array = np.clip(img_array - color_fondo_estimado, 0, 255)
 
-    # 3. Umbralización dinámica adaptativa
-    # Si la imagen tiene poco contraste bajamos el umbral para no borrar los trazos del número
-    rango = img_array.max() - img_array.min()
-    umbral = 50 if rango < 150 else 100
-    img_array = np.where(img_array > umbral, img_array, 0)
+    # 3. Umbralización para binarizar (Blanco y Negro puro)
+    _, img_binaria = cv2.threshold(img_array, 100, 255, cv2.THRESH_BINARY)
+
+    # 4. EXTRACCIÓN DEL DÍGITO CENTRAL (Elimina marcos y fondos rosa/blancos)
+    contornos, _ = cv2.findContours(img_binaria, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    img_digito = np.zeros_like(img_binaria)
+    if contornos:
+        # Buscamos el contorno más grande o el que esté más centrado
+        h, w = img_binaria.shape
+        centro_img = (w // 2, h // 2)
         
-    # 4. Ajustar caja de contorno (Bounding Box) para eliminar bordes vacíos
-    img_limpia = Image.fromarray(img_array.astype(np.uint8))
+        mejor_contorno = None
+        min_distancia = float('inf')
+        
+        for c in contornos:
+            M = cv2.moments(c)
+            if M["m00"] > 10:  # Ignorar ruidos diminutos
+                cx = int(M["m10"] / M["m00"])
+                cy = int(M["m01"] / M["m00"])
+                distancia = ((cx - centro_img[0])**2 + (cy - centro_img[1])**2)**0.5
+                if distancia < min_distancia:
+                    min_distancia = distancia
+                    mejor_contorno = c
+        
+        if mejor_contorno is not None:
+            # Dibujamos SOLO el número ignorando bordes decorativos
+            cv2.drawContours(img_digito, [mejor_contorno], -1, 255, -1)
+            # Aplicamos máscara para conservar texturas originales del trazo
+            img_final_raw = cv2.bitwise_and(img_array, img_array, mask=img_digito)
+        else:
+            img_final_raw = img_binaria
+    else:
+        img_final_raw = img_binaria
+
+    # 5. Ajustar caja de contorno (Bounding Box)
+    img_limpia = Image.fromarray(img_final_raw)
     caja = img_limpia.getbbox()
     if caja:
         img_limpia = img_limpia.crop(caja)
             
-    # 5. Redimensionar el dígito manteniendo sus proporciones originales
+    # 6. Redimensionar manteniendo proporciones
     ancho, alto = img_limpia.size
     if ancho > alto:
         nuevo_ancho = 20
@@ -72,12 +95,12 @@ def procesar_imagen(ruta):
     img_20x20 = img_limpia.resize((nuevo_ancho, nuevo_alto), resample=Image.LANCZOS)
     img_final_array = np.zeros((28, 28))
         
-    # 6. Centrar el número en el lienzo estándar de 28x28 píxeles
+    # 7. Centrar en el lienzo de 28x28
     inicio_x = (28 - nuevo_ancho) // 2
     inicio_y = (28 - nuevo_alto) // 2
     img_final_array[inicio_y:inicio_y+nuevo_alto, inicio_x:inicio_x+nuevo_ancho] = np.array(img_20x20)
         
-    # 7. Alineación perfecta por Centro de Masa (idéntico a la base de datos MNIST)
+    # 8. Alineación por Centro de Masa
     cy, cx = center_of_mass(img_final_array)
     if not np.isnan(cx) and not np.isnan(cy):
         shift_x = int(round(14.0 - cx))
@@ -85,11 +108,10 @@ def procesar_imagen(ruta):
         img_final_array = np.roll(img_final_array, shift_x, axis=1)
         img_final_array = np.roll(img_final_array, shift_y, axis=0)
         
-    # 8. Suavizado final de trazo para eliminar pixelado rudo
+    # 9. Suavizado y Normalización para la CNN
     img_pil_final = Image.fromarray(img_final_array.astype(np.uint8))
     img_pil_final = img_pil_final.filter(ImageFilter.SMOOTH_MORE)
         
-    # 9. Normalización matemática para la entrada de la red CNN ([0, 1])
     img_cnn = np.array(img_pil_final) / 255.0
     img_cnn = img_cnn.reshape(1, 28, 28, 1).astype(np.float32)
         
@@ -107,10 +129,8 @@ def index():
             ruta = os.path.join(app.config['UPLOAD_FOLDER'], nombre_unico)
             archivo.save(ruta)
             
-            # Ejecutar el procesamiento de la imagen
+            # Procesar y predecir
             img = procesar_imagen(ruta)
-            
-            # Realizar la predicción con el modelo cargado
             prediction_output = model(img)
             if isinstance(prediction_output, dict):
                 first_key = list(prediction_output.keys())[0]
@@ -121,7 +141,7 @@ def index():
             resultado = int(np.argmax(prediction))
             imagen = ruta.replace("\\", "/")
             
-            # Guardar el registro en el historial dinámico
+            # Guardar en el historial
             hora_actual = time.strftime("%H:%M:%S")
             historial_predicciones.insert(0, {
                 "imagen_url": imagen,
@@ -129,7 +149,6 @@ def index():
                 "hora": hora_actual
             })
                         
-            # Mantener únicamente las últimas 5 predicciones visibles
             if len(historial_predicciones) > 5:
                 historial_predicciones.pop()
                 
@@ -141,6 +160,5 @@ def index():
     )
 
 if __name__ == "__main__":
-    # Hugging Face Spaces exige leer la variable de entorno PORT (por defecto 7860)
     port = int(os.environ.get("PORT", 7860))
     app.run(host="0.0.0.0", port=port, debug=False)
